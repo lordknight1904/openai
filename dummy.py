@@ -3,7 +3,7 @@ import time
 import tensorflow as tf
 import numpy as np
 
-EPISODES = 100000
+EPISODES = 1000000
 
 env_name = 'LunarLander-v2'
 env = gym.make(env_name)
@@ -17,8 +17,8 @@ rewards = []
 eps = 0.02
 
 learning_rate = 0.02
-reward_decay = 0.99
-decay_rate = 0.95
+reward_decay = 0.95
+decay_rate = 0.99
 
 obs_space = env.observation_space.shape[0]
 action_space = env.action_space.n
@@ -72,13 +72,13 @@ def learn(obs, weight, bias):
     discounted_episode_rewards = np.zeros_like(episode_rewards)
     cumulative = 0
     for i in reversed(range(len(episode_rewards))):
-        cumulative = cumulative * reward_decay + episode_rewards[i]
+        cumulative = cumulative * reward_decay + decay_rate ** i * episode_rewards[i]
         discounted_episode_rewards[i] = cumulative
     discounted_episode_rewards -= np.mean(discounted_episode_rewards)
     discounted_episode_rewards /= np.std(discounted_episode_rewards)
 
-    nabla_b = [np.zeros(b.shape) for b in bias]
-    nabla_w = [np.zeros(w.shape) for w in weight]
+    list_delta_w = []
+    list_delta_b = []
 
     activation = a
     activations = [a]
@@ -89,30 +89,28 @@ def learn(obs, weight, bias):
         activation = sigmoid(z)
         activations.append(activation)
 
-    hot_vector = np.zeros_like(episode_actions)
-    for index, ep in enumerate(episode_actions, start=0):
-        hot_vector[index][np.argmax(episode_actions[index])] = 1
-    neg_log_prob = cross_entropy(hot_vector, episode_actions)
-    delta = neg_log_prob.transpose() * discounted_episode_rewards
-    delta = np.sum(delta, axis=1)
-    delta = delta[:, np.newaxis]
-
-    print(delta.shape)
-    nabla_b[-1] = delta
-    nabla_w[-1] = np.dot(delta, activations[-2].transpose())
-    for l in range(2, len(layers)):
-        z = zs[-l]
-        sp = sigmoid_prime(z)
-        delta = np.dot(weights[-l+1].transpose(), delta) * sp
-        nabla_b[-l] = delta
-        nabla_w[-l] = np.dot(delta, activations[-l-1].transpose())
-    return nabla_w, nabla_b
+    for act, re in zip(episode_actions, discounted_episode_rewards):
+        act = act[..., np.newaxis]
+        delta = act * re
+        nabla_b = [np.zeros(b.shape) for b in bias]
+        nabla_w = [np.zeros(w.shape) for w in weight]
+        nabla_b[-1] = delta
+        nabla_w[-1] = np.dot(delta, activations[-2].transpose())
+        for l in range(2, len(layers)):
+            z = zs[-l]
+            sp = sigmoid_prime(z)
+            delta = np.dot(weights[-l+1].transpose(), delta) * sp
+            nabla_b[-l] = learning_rate * delta
+            nabla_w[-l] = learning_rate * np.dot(delta, activations[-l-1].transpose())
+            list_delta_w.append(nabla_w)
+            list_delta_b.append(nabla_b)
+    return list_delta_w, list_delta_b
 
 
-upper_limit = 200
+upper_limit = 10000
 if __name__ == '__main__':
     for episode in range(EPISODES):
-    # for episode in range(1):
+    # for episode in range(100):
         observation = env.reset()
         tic = time.clock()
         while True:
@@ -137,18 +135,22 @@ if __name__ == '__main__':
                 max_reward_so_far = np.amax(rewards)
                 print("==========================================")
                 print("Episode: ", episode)
-                if episode > upper_limit:
-                    print("Seconds: ", elapsed_sec)
-                    print("Reward: ", episode_rewards_sum)
-                    print("Max reward so far: ", max_reward_so_far)
+                print("Seconds: ", elapsed_sec)
+                print("Reward: ", episode_rewards_sum)
+                print("Average reward: ", np.mean(rewards))
+                print("Max reward so far: ", max_reward_so_far)
 
                 # learn
-                nabla_w, nabla_b = learn(observation, weights, biases)
-                temp_b = biases
-                for index, (w, nw) in enumerate(zip(weights, nabla_w)):
-                    weights[index] = w + nw
-                for index, (b, nb) in enumerate(zip(biases, nabla_b)):
-                    biases[index] = b + nb
+                list_delta_w, list_delta_b = learn(observation, weights, biases)
+                # temp_b = biases
+                for lw in list_delta_w:
+                    for index, (w, nw) in enumerate(zip(weights, lw)):
+                        weights[index] = w + nw
+                        # weights[index] = w + learning_rate * nw
+                for lb in list_delta_b:
+                    for index, (b, nb) in enumerate(zip(biases, lb)):
+                        biases[index] = b + nb
+                        # biases[index] = b + learning_rate * nb
 
                 ##########
                 episode_observations = []

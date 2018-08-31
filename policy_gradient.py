@@ -15,8 +15,9 @@ episode_actions = []
 
 rewards = []
 eps = 0.02
-
-learning_rate = 0.02
+beta_1 = 0.9
+beta_2 = 0.999
+learning_rate = 0.001
 reward_decay = 0.95
 decay_rate = 0.99
 
@@ -77,6 +78,8 @@ def learn(obs, weight, bias):
     discounted_episode_rewards -= np.mean(discounted_episode_rewards)
     discounted_episode_rewards /= np.std(discounted_episode_rewards)
 
+    print(discounted_episode_rewards)
+
     list_delta_w = []
     list_delta_b = []
 
@@ -89,6 +92,7 @@ def learn(obs, weight, bias):
         activation = sigmoid(z)
         activations.append(activation)
 
+    delta = 0
     for act, re in zip(episode_actions, discounted_episode_rewards):
         act = act[..., np.newaxis]
         delta = act * re
@@ -107,10 +111,10 @@ def learn(obs, weight, bias):
     return list_delta_w, list_delta_b
 
 
-upper_limit = 10000
+upper_limit = 2000
 if __name__ == '__main__':
-    for episode in range(EPISODES):
-    # for episode in range(100):
+    # for episode in range(EPISODES):
+    for episode in range(2):
         observation = env.reset()
         tic = time.clock()
         while True:
@@ -120,6 +124,7 @@ if __name__ == '__main__':
                 action = np.abs(np.random.randn(env.action_space.n))
             else:
                 action = choose_actions(observation, weights, biases)
+            # print(action)
             observation_, reward, done, info = env.step(np.random.choice(env.action_space.n, p=softmax(action)))
             # 4. Store transition for training
             store_transition(observation, action, reward)
@@ -144,13 +149,30 @@ if __name__ == '__main__':
                 list_delta_w, list_delta_b = learn(observation, weights, biases)
                 # temp_b = biases
                 for lw in list_delta_w:
+                    p_m = np.zeros(layers.__len__() - 1, dtype=object)
+                    p_v = np.zeros(layers.__len__() - 1, dtype=object)
                     for index, (w, nw) in enumerate(zip(weights, lw)):
-                        # weights[index] = w + nw
-                        weights[index] = w + learning_rate * nw
+                        g = nw
+                        m = beta_1 * p_m[index] + (1 - beta_1) * g
+                        v = beta_2 * p_v[index] + (1 - beta_2) * np.power(g, 2)
+                        p_m[index] = m
+                        p_v[index] = v
+                        m = m / (1 - np.power(beta_1, index) + 1e-12)
+                        v = v / (1 - np.power(beta_2, index) + 1e-12)
+                        weights[index] = w + learning_rate * m / (np.sqrt(v) + 1e-12)
                 for lb in list_delta_b:
+                    p_m = np.zeros(layers.__len__() - 1, dtype=object)
+                    p_v = np.zeros(layers.__len__() - 1, dtype=object)
                     for index, (b, nb) in enumerate(zip(biases, lb)):
-                        # biases[index] = b + nb
-                        biases[index] = b + learning_rate * nb
+                        g = nb
+                        m = beta_1 * p_m[index] + (1 - beta_1) * g
+                        v = beta_2 * p_v[index] + (1 - beta_2) * np.power(g, 2)
+                        p_m[index] = m
+                        p_v[index] = v
+                        m = m / (1 - np.power(beta_1, index) + 1e-12)
+                        v = v / (1 - np.power(beta_2, index) + 1e-12)
+                        biases[index] = b + learning_rate * m / (np.sqrt(v) + 1e-12)
+                        # biases[index] = b + learning_rate * nb
 
                 ##########
                 episode_observations = []
