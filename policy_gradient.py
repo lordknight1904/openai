@@ -78,8 +78,6 @@ def learn(obs, weight, bias):
     discounted_episode_rewards -= np.mean(discounted_episode_rewards)
     discounted_episode_rewards /= np.std(discounted_episode_rewards)
 
-    print(discounted_episode_rewards)
-
     list_delta_w = []
     list_delta_b = []
 
@@ -92,7 +90,6 @@ def learn(obs, weight, bias):
         activation = sigmoid(z)
         activations.append(activation)
 
-    delta = 0
     for act, re in zip(episode_actions, discounted_episode_rewards):
         act = act[..., np.newaxis]
         delta = act * re
@@ -113,8 +110,8 @@ def learn(obs, weight, bias):
 
 upper_limit = 2000
 if __name__ == '__main__':
-    # for episode in range(EPISODES):
-    for episode in range(2):
+    for episode in range(EPISODES):
+    # for episode in range(2):
         observation = env.reset()
         tic = time.clock()
         while True:

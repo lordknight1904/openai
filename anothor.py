@@ -65,7 +65,7 @@ def store_transition(s, a, r):
 def choose_actions(obs, weight, bias):
     for b, w in zip(bias, weight):
         obs = sigmoid(np.dot(w, obs) + b)
-    return obs.transpose()[0]
+    return np.argmax(obs)
 
 
 def learn(obs, weight, bias):
@@ -90,7 +90,6 @@ def learn(obs, weight, bias):
         activation = sigmoid(z)
         activations.append(activation)
 
-    delta = 0
     for act, re in zip(episode_actions, discounted_episode_rewards):
         act = act[..., np.newaxis]
         delta = act * re
@@ -111,19 +110,19 @@ def learn(obs, weight, bias):
 
 upper_limit = 2000
 if __name__ == '__main__':
-    for episode in range(EPISODES):
-    # for episode in range(2):
+    # for episode in range(EPISODES):
+    for episode in range(2):
         observation = env.reset()
         tic = time.clock()
         while True:
             if episode > upper_limit: env.render()
             observation = observation[..., np.newaxis]
             if np.random.uniform(0, 1) < eps:
-                action = np.abs(np.random.randn(env.action_space.n))
+                action = np.random.choice(env.action_space.n)
             else:
                 action = choose_actions(observation, weights, biases)
             # print(action)
-            observation_, reward, done, info = env.step(np.random.choice(env.action_space.n, p=softmax(action)))
+            observation_, reward, done, info = env.step(action)
             # 4. Store transition for training
             store_transition(observation, action, reward)
 
@@ -157,9 +156,7 @@ if __name__ == '__main__':
                         p_v[index] = v
                         m = m / (1 - np.power(beta_1, index) + 1e-12)
                         v = v / (1 - np.power(beta_2, index) + 1e-12)
-                        temp = weights[index]
                         weights[index] = w + learning_rate * m / (np.sqrt(v) + 1e-12)
-                        print(weights[index] - temp)
                 for lb in list_delta_b:
                     p_m = np.zeros(layers.__len__() - 1, dtype=object)
                     p_v = np.zeros(layers.__len__() - 1, dtype=object)
