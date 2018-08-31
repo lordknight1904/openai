@@ -15,6 +15,7 @@ episode_actions = []
 
 rewards = []
 eps = 0.02
+epsilon = 1e-12
 beta_1 = 0.9
 beta_2 = 0.999
 learning_rate = 0.001
@@ -65,24 +66,36 @@ def store_transition(s, a, r):
 def choose_actions(obs, weight, bias):
     for b, w in zip(bias, weight):
         obs = sigmoid(np.dot(w, obs) + b)
-    return np.argmax(obs)
+    return softmax(obs)
 
+
+def calculate_future_reward(arr):
+    total = 0
+    gamma = 0.99
+    for i in range(len(arr)):
+        total += gamma ** i * arr[i]
+    return total
 
 def learn(obs, weight, bias):
-    a = obs
     discounted_episode_rewards = np.zeros_like(episode_rewards)
-    cumulative = 0
-    for i in reversed(range(len(episode_rewards))):
-        cumulative = cumulative * reward_decay + decay_rate ** i * episode_rewards[i]
-        discounted_episode_rewards[i] = cumulative
-    discounted_episode_rewards -= np.mean(discounted_episode_rewards)
-    discounted_episode_rewards /= np.std(discounted_episode_rewards)
+    for i in range(len(episode_rewards)):
+        discounted_episode_rewards[i] = calculate_future_reward(episode_rewards[i:])
 
-    list_delta_w = []
-    list_delta_b = []
-
-    activation = a
-    activations = [a]
+    prediction = []
+    target = []
+    for i in episode_actions:
+        prediction.append(i.transpose()[0])
+        temp = np.zeros_like(i.transpose()[0])
+        temp[np.argmax(i.transpose()[0])] = 1
+        target.append(temp)
+    neg_log_prob = np.zeros(len(prediction), dtype=object)
+    for index, (pre, tar) in enumerate(zip(prediction, target)):
+        neg_log_prob[index] = -np.multiply(pre, np.log(tar + epsilon))
+    # print(neg_log_prob)
+    delta = np.mean(discounted_episode_rewards * neg_log_prob)
+    delta = delta[..., np.newaxis]
+    activation = obs
+    activations = [obs]
     zs = []
     for b, w in zip(bias, weight):
         z = np.dot(w, activation) + b
@@ -90,45 +103,42 @@ def learn(obs, weight, bias):
         activation = sigmoid(z)
         activations.append(activation)
 
-    for act, re in zip(episode_actions, discounted_episode_rewards):
-        act = act[..., np.newaxis]
-        delta = act * re
-        nabla_b = [np.zeros(b.shape) for b in bias]
-        nabla_w = [np.zeros(w.shape) for w in weight]
-        nabla_b[-1] = delta
-        nabla_w[-1] = np.dot(delta, activations[-2].transpose())
-        for l in range(2, len(layers)):
-            z = zs[-l]
-            sp = sigmoid_prime(z)
-            delta = np.dot(weights[-l+1].transpose(), delta) * sp
-            nabla_b[-l] = delta
-            nabla_w[-l] = np.dot(delta, activations[-l-1].transpose())
-            list_delta_w.append(nabla_w)
-            list_delta_b.append(nabla_b)
-    return list_delta_w, list_delta_b
+    nabla_b = [np.zeros(b.shape) for b in bias]
+    nabla_w = [np.zeros(w.shape) for w in weight]
+
+    nabla_b[-1] = delta
+    nabla_w[-1] = np.dot(delta, activations[-2].transpose())
+    for l in range(2, len(layers)):
+        z = zs[-l]
+        sp = sigmoid_prime(z)
+        delta = np.dot(weights[-l + 1].transpose(), delta) * sp
+        nabla_b[-l] = delta
+        nabla_w[-l] = np.dot(delta, activations[-l - 1].transpose())
+
+    return nabla_w, nabla_b
 
 
-upper_limit = 2000
+upper_limit = 500
 if __name__ == '__main__':
-    # for episode in range(EPISODES):
-    for episode in range(2):
+    for episode in range(EPISODES):
+    # for episode in range(1):
         observation = env.reset()
         tic = time.clock()
         while True:
             if episode > upper_limit: env.render()
             observation = observation[..., np.newaxis]
             if np.random.uniform(0, 1) < eps:
-                action = np.random.choice(env.action_space.n)
+                action = np.abs(np.random.randn(env.action_space.n))
+                action = action[..., np.newaxis]
             else:
                 action = choose_actions(observation, weights, biases)
-            # print(action)
-            observation_, reward, done, info = env.step(action)
+            observation_, reward, done, info = env.step(np.argmax(action))
             # 4. Store transition for training
             store_transition(observation, action, reward)
 
             toc = time.clock()
             elapsed_sec = toc - tic
-            if elapsed_sec > 120:
+            if elapsed_sec > 5:
                 done = True
 
             if done:
@@ -143,34 +153,31 @@ if __name__ == '__main__':
                 print("Max reward so far: ", max_reward_so_far)
 
                 # learn
-                list_delta_w, list_delta_b = learn(observation, weights, biases)
+                nabla_w, nabla_b = learn(observation, weights, biases)
                 # temp_b = biases
-                for lw in list_delta_w:
-                    p_m = np.zeros(layers.__len__() - 1, dtype=object)
-                    p_v = np.zeros(layers.__len__() - 1, dtype=object)
-                    for index, (w, nw) in enumerate(zip(weights, lw)):
-                        g = nw
-                        m = beta_1 * p_m[index] + (1 - beta_1) * g
-                        v = beta_2 * p_v[index] + (1 - beta_2) * np.power(g, 2)
-                        p_m[index] = m
-                        p_v[index] = v
-                        m = m / (1 - np.power(beta_1, index) + 1e-12)
-                        v = v / (1 - np.power(beta_2, index) + 1e-12)
-                        weights[index] = w + learning_rate * m / (np.sqrt(v) + 1e-12)
-                for lb in list_delta_b:
-                    p_m = np.zeros(layers.__len__() - 1, dtype=object)
-                    p_v = np.zeros(layers.__len__() - 1, dtype=object)
-                    for index, (b, nb) in enumerate(zip(biases, lb)):
-                        g = nb
-                        m = beta_1 * p_m[index] + (1 - beta_1) * g
-                        v = beta_2 * p_v[index] + (1 - beta_2) * np.power(g, 2)
-                        p_m[index] = m
-                        p_v[index] = v
-                        m = m / (1 - np.power(beta_1, index) + 1e-12)
-                        v = v / (1 - np.power(beta_2, index) + 1e-12)
-                        biases[index] = b + learning_rate * m / (np.sqrt(v) + 1e-12)
-                        # biases[index] = b + learning_rate * nb
+                p_m = np.zeros(layers.__len__() - 1, dtype=object)
+                p_v = np.zeros(layers.__len__() - 1, dtype=object)
+                for index, (w, nw) in enumerate(zip(weights, nabla_w)):
+                    g = nw
+                    m = beta_1 * p_m[index] + (1 - beta_1) * g
+                    v = beta_2 * p_v[index] + (1 - beta_2) * np.power(g, 2)
+                    p_m[index] = m
+                    p_v[index] = v
+                    m = m / (1 - np.power(beta_1, index) + 1e-12)
+                    v = v / (1 - np.power(beta_2, index) + 1e-12)
+                    weights[index] = w - learning_rate * m / (np.sqrt(v) + 1e-12)
 
+                p_m = np.zeros(layers.__len__() - 1, dtype=object)
+                p_v = np.zeros(layers.__len__() - 1, dtype=object)
+                for index, (b, nb) in enumerate(zip(biases, nabla_b)):
+                    g = nb
+                    m = beta_1 * p_m[index] + (1 - beta_1) * g
+                    v = beta_2 * p_v[index] + (1 - beta_2) * np.power(g, 2)
+                    p_m[index] = m
+                    p_v[index] = v
+                    m = m / (1 - np.power(beta_1, index) + 1e-12)
+                    v = v / (1 - np.power(beta_2, index) + 1e-12)
+                    biases[index] = b - learning_rate * m / (np.sqrt(v) + 1e-12)
                 ##########
                 episode_observations = []
                 episode_rewards = []
